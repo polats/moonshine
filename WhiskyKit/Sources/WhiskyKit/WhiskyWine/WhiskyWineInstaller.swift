@@ -16,6 +16,7 @@
 //  If not, see https://www.gnu.org/licenses/.
 //
 
+import CryptoKit
 import Foundation
 import SemanticVersion
 
@@ -31,12 +32,28 @@ public class WhiskyWineInstaller {
     /// URL to the installed `wine` `bin` directory
     public static let binFolder: URL = libraryFolder.appending(path: "Wine").appending(path: "bin")
 
+    /// Pinned Gcenx Wine Staging release and its SHA-256 (from the GitHub release asset digest)
+    public static let wineDownloadURL = URL(
+        string: "https://github.com/Gcenx/macOS_Wine_builds/releases/download/"
+            + "11.18/wine-staging-11.18-osx64.tar.xz"
+    )
+    static let wineSHA256 = "b63704b91af269bc026a87f12bd297c4a50caaf570c322e600b6621ef918f127"
+    static let wineVersion = SemanticVersion(11, 18, 0)
+
     public static func isWhiskyWineInstalled() -> Bool {
         return whiskyWineVersion() != nil
     }
 
     public static func install(from: URL) {
         do {
+            let digest = SHA256.hash(data: try Data(contentsOf: from, options: .mappedIfSafe))
+            let actual = digest.map { String(format: "%02x", $0) }.joined()
+            guard actual == wineSHA256 else {
+                print("Wine download checksum mismatch: expected \(wineSHA256), got \(actual)")
+                try? FileManager.default.removeItem(at: from)
+                return
+            }
+
             if !FileManager.default.fileExists(atPath: applicationFolder.path) {
                 try FileManager.default.createDirectory(at: applicationFolder, withIntermediateDirectories: true)
             } else {
@@ -71,14 +88,17 @@ public class WhiskyWineInstaller {
             let versionPlist = libraryFolder
                 .appending(path: "WhiskyWineVersion")
                 .appendingPathExtension("plist")
-            let versionInfo = WhiskyWineVersion(version: SemanticVersion(11, 2, 0))
+            let versionInfo = WhiskyWineVersion(version: wineVersion)
             let encoder = PropertyListEncoder()
             encoder.outputFormat = .xml
             let data = try encoder.encode(versionInfo)
             try data.write(to: versionPlist)
 
-            // Apply OpenGL patch to winemac.so
-            applyOpenGLPatch()
+            // The OpenGL patch offset only matches Wine 11.2's winemac.so, so it is not applied
+            // to other versions. Patching a stray 0x74 byte in a different build would corrupt it.
+            if wineVersion == SemanticVersion(11, 2, 0) {
+                applyOpenGLPatch()
+            }
         } catch {
             print("Failed to install WhiskyWine: \(error)")
         }

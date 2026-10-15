@@ -206,7 +206,8 @@ struct ConfigView: View {
             }
             Task(priority: .userInitiated) {
                 do {
-                    dpiConfig = try await Wine.dpiResolution(bottle: bottle) ?? 0
+                    // A missing LogPixels entry means Windows' default of 96; writing 0 blanks DPI-aware apps
+                    dpiConfig = try await Wine.dpiResolution(bottle: bottle) ?? 96
                     dpiConfigLoadingState = .success
                 } catch {
                     print(error)

@@ -22,7 +22,7 @@ Moonshine is a maintained fork of Whisky, a native SwiftUI wrapper for Wine on m
 - **Wine Staging 11.18** (Sep 2026) — replaces the outdated CrossOver 22.1.1 (2023) bundled with the original; the download is checksum-verified
 - **Crash logs that actually work** — Wine output is captured in full, including page faults, DLL load failures, and exit codes
 - **OpenGL 3.2+ support** — binary patch to Wine's macOS driver fixes context creation for SDL3 and other modern engines
-- **Steam and DirectX 11 games** — optional scripts fix Steam's black window and add [DXMT](https://github.com/3Shain/dxmt) (Direct3D 11 on Metal) for games like Unity 6 titles
+- **Steam and DirectX 11 games** — optional scripts fix Steam's black window and add [DXMT](https://github.com/3Shain/dxmt) (Direct3D 11 on Metal) for games that need it
 - **macOS 26 tested** — verified on the latest macOS with Apple Silicon
 
 ## System Requirements
@@ -107,7 +107,7 @@ Then set Steam's launch arguments in Moonshine to `-noverifyfiles -norepairfiles
 
 ### DirectX 11 games (DXMT)
 
-Wine's built-in Direct3D on macOS tops out below feature level 11.0, so games that require it (including Unity 6 titles) fail with "Failed to initialize graphics". [DXMT](https://github.com/3Shain/dxmt) implements Direct3D 10/11 on Metal, but needs functions that Wine's macOS driver hides. Build a driver that exposes them, then install it with DXMT:
+Wine's built-in Direct3D on macOS tops out below feature level 11.0, so games that require it fail to create a Direct3D 11 device. [DXMT](https://github.com/3Shain/dxmt) implements Direct3D 10/11 on Metal, but needs functions that Wine's macOS driver hides. Build a driver that exposes them, then install it with DXMT:
 
 ```bash
 ./scripts/build_winemac_dxmt.sh

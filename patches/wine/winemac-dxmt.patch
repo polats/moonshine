@@ -1,0 +1,102 @@
+diff -ru a/dlls/winemac.drv/opengl.c b/dlls/winemac.drv/opengl.c
+--- a/dlls/winemac.drv/opengl.c	2026-10-29 23:18:56
++++ b/dlls/winemac.drv/opengl.c	2026-10-29 23:18:56
+@@ -2109,12 +2109,10 @@
+     if ((major == 3 && (minor == 2 || minor == 3)) ||
+         (major == 4 && (minor == 0 || minor == 1)))
+     {
++        /* Moonshine: macOS core profiles are always forward-compatible, so accept 3.2+ requests
++         * without the flag (wined3d and SDL3 don't set it) instead of failing context creation. */
+         if (!(flags & WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB))
+-        {
+-            WARN("OS X only supports forward-compatible 3.2+ contexts\n");
+-            RtlSetLastWin32Error(ERROR_INVALID_VERSION_ARB);
+-            return NULL;
+-        }
++            TRACE("treating 3.2+ context request as forward-compatible\n");
+         if (profile != WGL_CONTEXT_CORE_PROFILE_BIT_ARB)
+         {
+             WARN("Compatibility profiles for GL version >= 3.2 not supported\n");
+diff -ru a/dlls/winemac.drv/window.c b/dlls/winemac.drv/window.c
+--- a/dlls/winemac.drv/window.c	2026-10-29 23:18:56
++++ b/dlls/winemac.drv/window.c	2026-10-29 23:18:56
+@@ -216,6 +216,79 @@
+ 
+ 
+ /***********************************************************************
++ *              macdrv_functions
++ *
++ * Moonshine: entry points for DXMT (Direct3D 10/11 on Metal), which finds this table with
++ * dlsym(RTLD_DEFAULT, "macdrv_functions") as it does on CrossOver. DXMT reads window data in the
++ * pre-Wine 11 layout, so it gets a translated copy, guarded by win_data_mutex like the original.
++ */
++struct dxmt_win_data
++{
++    HWND             hwnd;
++    WineWindow      *cocoa_window;
++    WineContentView *cocoa_view;
++    WineContentView *client_cocoa_view;
++};
++
++static struct dxmt_win_data dxmt_win_data;
++
++static struct dxmt_win_data *dxmt_get_win_data(HWND hwnd)
++{
++    struct macdrv_win_data *data;
++    BOOL has_client_view;
++
++    if (!(data = get_win_data(hwnd))) return NULL;
++    has_client_view = data->client_view != NULL;
++    release_win_data(data);
++
++    /* Wine 11 only attaches a client view once a GL or Vulkan surface exists, but DXMT renders with
++     * Metal directly, so attach one the same way. Like a GL surface it lives as long as the window.
++     * This takes win_data_mutex itself, so it must run unlocked. */
++    if (!has_client_view) macdrv_CreateClientSurface(hwnd, 0, FALSE);
++
++    if (!(data = get_win_data(hwnd))) return NULL;
++    dxmt_win_data.hwnd = data->hwnd;
++    dxmt_win_data.cocoa_window = data->cocoa_window;
++    dxmt_win_data.cocoa_view = data->client_view;
++    dxmt_win_data.client_cocoa_view = data->client_view;
++    return &dxmt_win_data;
++}
++
++static void dxmt_release_win_data(struct dxmt_win_data *data)
++{
++    if (data) pthread_mutex_unlock(&win_data_mutex);
++}
++
++struct dxmt_macdrv_functions
++{
++    void (*macdrv_init_display_devices)(BOOL);
++    struct dxmt_win_data *(*get_win_data)(HWND hwnd);
++    void (*release_win_data)(struct dxmt_win_data *data);
++    WineWindow *(*macdrv_get_cocoa_window)(HWND hwnd, BOOL require_on_screen);
++    id_MTLDevice (*macdrv_create_metal_device)(void);
++    void (*macdrv_release_metal_device)(id_MTLDevice device);
++    WineMetalView *(*macdrv_view_create_metal_view)(WineContentView *view, id_MTLDevice device);
++    CAMetalLayer *(*macdrv_view_get_metal_layer)(WineMetalView *view);
++    void (*macdrv_view_release_metal_view)(WineMetalView *view);
++    void *on_main_thread;
++};
++
++__attribute__((visibility("default"))) const struct dxmt_macdrv_functions macdrv_functions =
++{
++    NULL,
++    dxmt_get_win_data,
++    dxmt_release_win_data,
++    macdrv_get_cocoa_window,
++    macdrv_create_metal_device,
++    macdrv_release_metal_device,
++    macdrv_view_create_metal_view,
++    macdrv_view_get_metal_layer,
++    macdrv_view_release_metal_view,
++    NULL,
++};
++
++
++/***********************************************************************
+  *              macdrv_get_cocoa_window
+  *
+  * Return the Mac window associated with the full area of a window

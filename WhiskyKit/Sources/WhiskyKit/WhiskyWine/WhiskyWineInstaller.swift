@@ -94,18 +94,17 @@ public class WhiskyWineInstaller {
             let data = try encoder.encode(versionInfo)
             try data.write(to: versionPlist)
 
-            // The OpenGL patch offset only matches Wine 11.2's winemac.so, so it is not applied
-            // to other versions. Patching a stray 0x74 byte in a different build would corrupt it.
-            if wineVersion == SemanticVersion(11, 2, 0) {
-                applyOpenGLPatch()
-            }
+            // Apply OpenGL patch to winemac.so
+            applyOpenGLPatch()
         } catch {
             print("Failed to install WhiskyWine: \(error)")
         }
     }
 
-    /// Patches winemac.so to enable OpenGL 3.2+ context creation for SDL3-based games.
-    /// Changes byte at offset 0x329fb from 0x74 (JE) to 0xEB (JMP).
+    /// Patches winemac.so to enable OpenGL 3.2+ context creation for wined3d (D3D10/11) and SDL3 games.
+    /// macdrv rejects 3.2+ contexts unless the caller sets the forward-compatible flag, which wined3d does
+    /// not, so D3D11 falls back to a legacy 2.1 context and fails. The patch turns the `je` guarding that
+    /// rejection into a `jmp`. The offset is specific to the pinned build, so both bytes are checked first.
     private static func applyOpenGLPatch() {
         let winemacPath = libraryFolder
             .appending(path: "Wine")
@@ -119,27 +118,37 @@ public class WhiskyWineInstaller {
             return
         }
 
+        let patchOffset: UInt64 = 0x318dd
+        let original = Data([0x74, 0x1c])
+        let patched = Data([0xEB, 0x1c])
+
         do {
             let fileHandle = try FileHandle(forUpdating: winemacPath)
-            defer { fileHandle.closeFile() }
+            defer { try? fileHandle.close() }
 
-            let patchOffset: UInt64 = 0x329fb
-            fileHandle.seek(toFileOffset: patchOffset)
+            try fileHandle.seek(toOffset: patchOffset)
+            let current = try fileHandle.read(upToCount: original.count) ?? Data()
 
-            guard let currentByte = fileHandle.readData(ofLength: 1).first else {
-                print("Failed to read byte at patch offset")
+            if current == patched {
+                print("OpenGL patch already applied")
+                return
+            }
+            guard current == original else {
+                print("Unexpected bytes \(current.map { String(format: "%02x", $0) }) at patch offset, skipping patch")
                 return
             }
 
-            if currentByte == 0x74 {
-                fileHandle.seek(toFileOffset: patchOffset)
-                fileHandle.write(Data([0xEB]))
-                print("OpenGL patch applied successfully")
-            } else if currentByte == 0xEB {
-                print("OpenGL patch already applied")
-            } else {
-                print("Unexpected byte 0x\(String(currentByte, radix: 16)) at patch offset, skipping patch")
-            }
+            try fileHandle.seek(toOffset: patchOffset)
+            try fileHandle.write(contentsOf: patched)
+            try fileHandle.close()
+
+            // Editing the binary invalidates its ad-hoc signature, so re-sign it
+            let codesign = Process()
+            codesign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+            codesign.arguments = ["--force", "--sign", "-", winemacPath.path(percentEncoded: false)]
+            try codesign.run()
+            codesign.waitUntilExit()
+            print("OpenGL patch applied successfully")
         } catch {
             print("Failed to apply OpenGL patch: \(error)")
         }

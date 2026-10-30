@@ -5,7 +5,7 @@
 
   [![macOS](https://img.shields.io/badge/macOS-14.0%2B-blue)](https://www.apple.com/macos/)
   [![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-M1%2FM2%2FM3%2FM4-green)](https://support.apple.com/en-us/116943)
-  [![Wine](https://img.shields.io/badge/Wine-Staging%2011.2-purple)](https://github.com/Gcenx/macOS_Wine_builds)
+  [![Wine](https://img.shields.io/badge/Wine-Staging%2011.18-purple)](https://github.com/Gcenx/macOS_Wine_builds)
   [![License](https://img.shields.io/badge/License-GPL--3.0-orange)](LICENSE)
 
   Forked from [Whisky-App/Whisky](https://github.com/Whisky-App/Whisky) (archived May 2025)
@@ -19,9 +19,10 @@ Moonshine is a maintained fork of Whisky, a native SwiftUI wrapper for Wine on m
 
 ## What's different from Whisky?
 
-- **Wine Staging 11.2** (Feb 2026) — replaces the outdated CrossOver 22.1.1 (2023) bundled with the original
+- **Wine Staging 11.18** (Sep 2026) — replaces the outdated CrossOver 22.1.1 (2023) bundled with the original; the download is checksum-verified
 - **Crash logs that actually work** — Wine output is captured in full, including page faults, DLL load failures, and exit codes
 - **OpenGL 3.2+ support** — binary patch to Wine's macOS driver fixes context creation for SDL3 and other modern engines
+- **Steam and DirectX 11 games** — optional scripts fix Steam's black window and add [DXMT](https://github.com/3Shain/dxmt) (Direct3D 11 on Metal) for games like Unity 6 titles
 - **macOS 26 tested** — verified on the latest macOS with Apple Silicon
 
 ## System Requirements
@@ -39,7 +40,7 @@ Moonshine is a maintained fork of Whisky, a native SwiftUI wrapper for Wine on m
 1. Download `Moonshine.dmg` from the [latest release](https://github.com/ybmeng/moonshine/releases/latest)
 2. Open the DMG and drag **Moonshine.app** to **Applications**
 3. Launch the app — the setup wizard will automatically:
-   - Download [Wine Staging 11.2](https://github.com/Gcenx/macOS_Wine_builds/releases/tag/11.2) from Gcenx
+   - Download [Wine Staging 11.18](https://github.com/Gcenx/macOS_Wine_builds/releases/tag/11.18) from Gcenx and verify its SHA-256
    - Extract and install Wine into the correct directory structure
    - Apply the OpenGL 3.2+ patch to `winemac.so`
 4. Create a bottle and start running Windows programs
@@ -68,7 +69,7 @@ The script will:
 5. Copy `Moonshine.app` to `/Applications`
 6. Launch the app
 
-On first launch, the setup wizard auto-downloads Wine Staging 11.2 and applies the OpenGL patch — same as Method 1.
+On first launch, the setup wizard auto-downloads Wine Staging 11.18 and applies the OpenGL patch — same as Method 1.
 
 ### Build a DMG
 
@@ -89,6 +90,47 @@ Wine logs are written to:
 ```
 
 Each run creates a timestamped log with full Wine output, including crash details and DLL load diagnostics.
+
+## Running Steam games
+
+These steps are optional and run from Terminal in the repo. Find your bottle's path in Moonshine (right-click the bottle → Show in Finder); it looks like `~/Library/Containers/com.isaacmarovitz.Whisky/Bottles/<id>`. Quit Steam before running the scripts.
+
+### Steam's black window
+
+Under Wine, Steam's UI (`steamwebhelper.exe`) paints a black window and fails to sign in, because Chromium splits rendering and networking into separate processes. The wrapper relaunches Valve's helper with `--single-process --disable-gpu`:
+
+```bash
+./scripts/install_steam_wrapper.sh <bottle-path>
+```
+
+Then set Steam's launch arguments in Moonshine to `-noverifyfiles -norepairfiles`, or Steam's startup check restores the original helper. Steam can still update itself; if the black window returns afterwards, run the script again.
+
+### DirectX 11 games (DXMT)
+
+Wine's built-in Direct3D on macOS tops out below feature level 11.0, so games that require it (including Unity 6 titles) fail with "Failed to initialize graphics". [DXMT](https://github.com/3Shain/dxmt) implements Direct3D 10/11 on Metal, but needs functions that Wine's macOS driver hides. Build a driver that exposes them, then install it with DXMT:
+
+```bash
+./scripts/build_winemac_dxmt.sh
+./scripts/install_dxmt.sh <bottle-path>
+```
+
+The build only recompiles `winemac.so` from the same Wine Staging 11.18 source, with [`patches/wine/winemac-dxmt.patch`](patches/wine/winemac-dxmt.patch) applied, and takes about a minute. All downloads (Wine source, Wine Staging, bison, llvm-mingw, DXMT 0.80) are pinned and checksum-verified.
+
+DXMT replaces Wine's `d3d11`, `dxgi` and `d3d10core` for every program in every bottle. Wine's originals are backed up to `~/Library/Caches/Moonshine/backup/wine` and restored with:
+
+```bash
+./scripts/install_dxmt.sh --uninstall <bottle-path>
+```
+
+Reinstalling Wine from Moonshine also removes DXMT, so run both scripts again afterwards.
+
+**If a game looks too dark:** on HDR-capable (EDR) displays, including built-in MacBook screens, DXMT reports an HDR10 monitor and some games render dim. Create a `dxmt.conf` next to the game's `.exe` containing:
+
+```
+dxgi.forceSDR = True
+```
+
+DirectX 12 games are not supported by DXMT.
 
 ---
 

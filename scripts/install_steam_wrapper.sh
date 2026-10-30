@@ -17,15 +17,10 @@ if [ $# -ne 1 ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/lib/common.sh"
 SOURCE="$SCRIPT_DIR/steamwebhelper-wrapper/steamwebhelper-wrapper.c"
 CEF_DIR="$1/drive_c/Program Files (x86)/Steam/bin/cef/cef.win64"
-
-LLVM_MINGW_VERSION="20261006"
-LLVM_MINGW_NAME="llvm-mingw-$LLVM_MINGW_VERSION-ucrt-macos-universal"
-LLVM_MINGW_URL="https://github.com/mstorsjo/llvm-mingw/releases/download/$LLVM_MINGW_VERSION/$LLVM_MINGW_NAME.tar.xz"
-LLVM_MINGW_SHA256="a7a19b11048e89372637d26279cdb7c430ed3cf8c1e224310421312bf986ebf6"
-CACHE_DIR="$HOME/Library/Caches/Moonshine"
-CC="$CACHE_DIR/$LLVM_MINGW_NAME/bin/x86_64-w64-mingw32-gcc"
+CC="$LLVM_MINGW_BIN/x86_64-w64-mingw32-gcc"
 
 # Valve's helper is several MB; the wrapper is well under this
 WRAPPER_SIZE_CEILING=500000
@@ -36,14 +31,7 @@ if [ ! -f "$CEF_DIR/steamwebhelper.exe" ]; then
     exit 1
 fi
 
-if [ ! -x "$CC" ]; then
-    echo "==> Downloading llvm-mingw $LLVM_MINGW_VERSION..."
-    mkdir -p "$CACHE_DIR"
-    curl -fsSLo "$CACHE_DIR/llvm-mingw.tar.xz" "$LLVM_MINGW_URL"
-    echo "$LLVM_MINGW_SHA256  $CACHE_DIR/llvm-mingw.tar.xz" | shasum -a 256 -c
-    tar -xf "$CACHE_DIR/llvm-mingw.tar.xz" -C "$CACHE_DIR"
-    rm "$CACHE_DIR/llvm-mingw.tar.xz"
-fi
+ensure_llvm_mingw
 
 echo "==> Building wrapper..."
 BUILD_DIR="$(mktemp -d)"
